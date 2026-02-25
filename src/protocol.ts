@@ -15,6 +15,14 @@ export const StartCommand = z.object({
   stop_on_entry: z.boolean().optional(),
 });
 
+export const AttachCommand = z.object({
+  action: z.literal("attach"),
+  host: z.string().optional(),
+  port: z.number(),
+  language: z.string().optional(),
+  breakpoints: z.array(z.string()).optional(),
+});
+
 export const VarsCommand = z.object({ action: z.literal("vars") });
 export const StackCommand = z.object({ action: z.literal("stack") });
 
@@ -48,6 +56,7 @@ export const CloseCommand = z.object({ action: z.literal("close") });
 
 export const Command = z.discriminatedUnion("action", [
   StartCommand,
+  AttachCommand,
   VarsCommand,
   StackCommand,
   EvalCommand,

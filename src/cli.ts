@@ -176,6 +176,19 @@ function formatResult(result: CommandResult): string {
     return `  Breakpoint: ${result.file}:${result.line} (${v})`;
   }
 
+  // Running (e.g. after attach — breakpoints set, waiting for trigger)
+  if (result.status === "running") {
+    const out: string[] = ["Attached. Program is running."];
+    if (result.breakpoints) {
+      for (const bp of result.breakpoints) {
+        const v = bp.verified ? "verified" : "pending";
+        out.push(`  Breakpoint: ${bp.file}:${bp.line} (${v})`);
+      }
+    }
+    out.push("  Run 'agent-debugger continue' to wait for a breakpoint hit.");
+    return out.join("\n");
+  }
+
   // Terminated
   if (result.status === "terminated") {
     const exitStr = result.exitCode !== undefined && result.exitCode !== null ? ` (exit code: ${result.exitCode})` : "";
@@ -195,15 +208,16 @@ const HELP = `agent-debugger \u2014 CLI debugger for AI agents
 
 Usage:
   agent-debugger start <script> [--break file:line] [--runtime path] [--args ...]
+  agent-debugger attach [host:]port [--break file:line] [--language python]
   agent-debugger vars                        Get local variables
   agent-debugger eval <expression>           Evaluate expression
   agent-debugger step [into|out]             Step over/into/out
-  agent-debugger continue                    Continue to next breakpoint
+  agent-debugger continue                    Continue / wait for next breakpoint
   agent-debugger stack                       Show call stack
   agent-debugger break <file:line[:cond]>    Add breakpoint
   agent-debugger source [file] [line]        Show source code
   agent-debugger status                      Show current state
-  agent-debugger close                       End debug session`;
+  agent-debugger close                       Detach / end debug session`;
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
@@ -261,6 +275,60 @@ async function main(): Promise<void> {
       if (runtimePath) cmd.runtime = pathResolve(runtimePath);
       if (scriptArgs) cmd.args = scriptArgs;
       result = await sendCommand(cmd);
+      break;
+    }
+
+    case "attach": {
+      if (args.length < 2) {
+        process.stderr.write("Error: missing port. Usage: agent-debugger attach [host:]port [--break file:line]\n");
+        process.exit(1);
+      }
+      const target = args[1]!;
+      let attachHost: string | undefined;
+      let attachPort: number;
+
+      // Parse [host:]port
+      if (target.includes(":")) {
+        const lastColon = target.lastIndexOf(":");
+        attachHost = target.substring(0, lastColon);
+        attachPort = parseInt(target.substring(lastColon + 1), 10);
+      } else {
+        attachPort = parseInt(target, 10);
+      }
+
+      if (isNaN(attachPort)) {
+        process.stderr.write("Error: invalid port number\n");
+        process.exit(1);
+      }
+
+      const attachBreakpoints: string[] = [];
+      let attachLanguage: string | undefined;
+
+      let ai = 2;
+      while (ai < args.length) {
+        if ((args[ai] === "--break" || args[ai] === "-b") && ai + 1 < args.length) {
+          attachBreakpoints.push(args[ai + 1]!);
+          ai += 2;
+        } else if (args[ai] === "--language" && ai + 1 < args.length) {
+          attachLanguage = args[ai + 1]!;
+          ai += 2;
+        } else {
+          const val = args[ai]!;
+          if (val.includes(":") && /:\d+/.test(val)) {
+            attachBreakpoints.push(val);
+          }
+          ai += 1;
+        }
+      }
+
+      const attachCmd: Record<string, unknown> = {
+        action: "attach",
+        port: attachPort,
+        breakpoints: attachBreakpoints,
+      };
+      if (attachHost) attachCmd.host = attachHost;
+      if (attachLanguage) attachCmd.language = attachLanguage;
+      result = await sendCommand(attachCmd);
       break;
     }
 

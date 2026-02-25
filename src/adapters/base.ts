@@ -23,6 +23,12 @@ export interface InitFlowOpts extends LaunchOpts {
   breakpoints?: Array<{ file: string; lines: number[]; conditions?: Array<string | null> }>;
 }
 
+export interface AttachFlowOpts {
+  host: string;
+  port: number;
+  breakpoints?: Array<{ file: string; lines: number[]; conditions?: Array<string | null> }>;
+}
+
 export interface AdapterConfig {
   name: string;
 
@@ -43,6 +49,12 @@ export interface AdapterConfig {
    * Handles quirks like debugpy's deferred launch response.
    */
   initFlow(client: DAPClient, opts: InitFlowOpts): Promise<CommandResult>;
+
+  /**
+   * Adapter-specific DAP attach flow for connecting to an already-running debuggee.
+   * Returns null if this adapter does not support attach.
+   */
+  attachFlow?(client: DAPClient, opts: AttachFlowOpts): Promise<CommandResult>;
 
   /** Filter internal frames (e.g. debugpy/pydevd internals). */
   isInternalFrame(frame: StackFrame): boolean;

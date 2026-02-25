@@ -4,7 +4,7 @@ import { spawn as cpSpawn } from "node:child_process";
 import type { DAPClient } from "../dap-client.js";
 import type { StackFrame, Variable } from "../dap-types.js";
 import type { CommandResult } from "../protocol.js";
-import type { AdapterConfig, SpawnResult, LaunchOpts, InitFlowOpts } from "./base.js";
+import type { AdapterConfig, SpawnResult, LaunchOpts, InitFlowOpts, AttachFlowOpts } from "./base.js";
 import { getFreePort } from "../util/ports.js";
 
 export class PythonAdapter implements AdapterConfig {
@@ -149,6 +149,82 @@ export class PythonAdapter implements AdapterConfig {
       return { status: "terminated", message: "Program finished without hitting breakpoint" };
     }
 
+    return { status: "running", breakpoints: bpResults };
+  }
+
+  /**
+   * Attach flow for debugpy — connects to a running debugpy listener.
+   * The user starts their server with:
+   *   python -m debugpy --listen PORT [-m module | script.py]
+   * or adds debugpy.listen(PORT) to their code.
+   *
+   * Flow: initialize -> attach (async) -> initialized event -> setBreakpoints
+   *       -> configurationDone -> attach response -> program continues running
+   */
+  async attachFlow(client: DAPClient, opts: AttachFlowOpts): Promise<CommandResult> {
+    // 1. Initialize
+    const initResp = await client.request("initialize", this.initializeArgs());
+    if (!initResp.success) {
+      return { error: `Initialize failed: ${initResp.message || "unknown"}` };
+    }
+
+    // 2. Attach (async — debugpy defers response until configurationDone)
+    const attachArgs: Record<string, unknown> = {
+      type: "debugpy",
+      request: "attach",
+      justMyCode: true,
+      subProcess: true,
+    };
+    const attachSeq = client.requestAsync("attach", attachArgs);
+
+    // 3. Wait for initialized event
+    const initialized = await client.waitForEvent("initialized", 10000);
+    if (!initialized) {
+      return { error: "Timeout waiting for initialized event from debugpy" };
+    }
+
+    // 4. Set breakpoints
+    const bpResults: Array<{ file: string; line: number; verified: boolean }> = [];
+    if (opts.breakpoints?.length) {
+      for (const bp of opts.breakpoints) {
+        const bpArgs: Record<string, unknown> = {
+          source: { path: bp.file },
+          breakpoints: bp.lines.map((line, i) => {
+            const entry: Record<string, unknown> = { line };
+            if (bp.conditions?.[i]) entry.condition = bp.conditions[i];
+            return entry;
+          }),
+        };
+        const resp = await client.request("setBreakpoints", bpArgs);
+        if (resp.success && resp.body) {
+          const bps = (resp.body as { breakpoints?: Array<{ line?: number; verified?: boolean }> }).breakpoints;
+          if (bps) {
+            for (const b of bps) {
+              bpResults.push({
+                file: bp.file,
+                line: b.line ?? 0,
+                verified: b.verified ?? false,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // 5. Exception breakpoints
+    await client.request("setExceptionBreakpoints", { filters: [] });
+
+    // 6. configurationDone
+    await client.request("configurationDone");
+
+    // 7. Wait for the deferred attach response
+    const attachResp = await client.waitForResponse(attachSeq, 15000);
+    if (!attachResp.success) {
+      return { error: `Attach failed: ${attachResp.message || "unknown"}` };
+    }
+
+    // Program is already running — don't wait for stopped event.
+    // The user should trigger their server, then run `agent-debugger continue` to wait.
     return { status: "running", breakpoints: bpResults };
   }
 

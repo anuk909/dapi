@@ -18,11 +18,15 @@ export class Session {
   private threadId: number | null = null;
   private frameId: number | null = null;
   private scriptPath: string | null = null;
+  /** True when connected via attach (don't kill the debuggee on close). */
+  private attachedMode = false;
 
   async handleCommand(cmd: Command): Promise<CommandResult> {
     switch (cmd.action) {
       case "start":
         return this.startSession(cmd);
+      case "attach":
+        return this.attachSession(cmd);
       case "vars":
         return this.getVariables();
       case "stack":
@@ -125,6 +129,61 @@ export class Session {
       this.state = "running";
     }
 
+    return result;
+  }
+
+  private async attachSession(cmd: Extract<Command, { action: "attach" }>): Promise<CommandResult> {
+    if (this.state !== "idle") {
+      return { error: "Session already active. Run 'agent-debugger close' first." };
+    }
+
+    this.state = "starting";
+
+    // Get adapter (default to python)
+    const language = cmd.language || "python";
+    this.adapter = getAdapter(language);
+    if (!this.adapter) {
+      this.state = "idle";
+      return { error: `Unknown language: ${language}` };
+    }
+
+    if (!this.adapter.attachFlow) {
+      this.state = "idle";
+      return { error: `Attach not supported for ${this.adapter.name}` };
+    }
+
+    const host = cmd.host || "127.0.0.1";
+    const port = cmd.port;
+
+    // Connect DAP client directly to the debuggee's debug server
+    try {
+      this.client = new DAPClient();
+      await this.client.connect(host, port);
+    } catch (err) {
+      this.state = "idle";
+      this.client = null;
+      return { error: `Failed to connect to ${host}:${port}: ${(err as Error).message}` };
+    }
+
+    // Parse breakpoints
+    const breakpoints = this.parseBreakpoints(cmd.breakpoints || []);
+
+    // Run adapter-specific attach flow
+    const result = await this.adapter.attachFlow(this.client, {
+      host,
+      port,
+      breakpoints,
+    });
+
+    if (result.error) {
+      this.state = "idle";
+      await this.cleanup();
+      return result;
+    }
+
+    // After attach, program is running (breakpoints set, waiting for trigger)
+    this.state = "running";
+    this.attachedMode = true;
     return result;
   }
 
@@ -292,6 +351,11 @@ export class Session {
   }
 
   private async continueExecution(): Promise<CommandResult> {
+    if (this.state === "running") {
+      // In running state (e.g. after attach), just wait for next breakpoint hit
+      if (!this.client) return { error: "No active session" };
+      return this.waitForStop();
+    }
     if (this.state !== "paused") return { error: "Program is not paused" };
     if (!this.client || this.threadId === null) return { error: "No active session" };
 
@@ -413,13 +477,15 @@ export class Session {
     this.threadId = null;
     this.frameId = null;
     this.scriptPath = null;
+    this.attachedMode = false;
     return { status: "closed" };
   }
 
   private async cleanup(): Promise<void> {
     if (this.client) {
       try {
-        await this.client.close();
+        // In attach mode, disconnect without terminating the debuggee
+        await this.client.disconnect(!this.attachedMode);
       } catch {
         // Best effort
       }

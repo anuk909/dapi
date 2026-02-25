@@ -49,18 +49,47 @@ agent-debugger start <script> --break file:line[:condition] [--runtime path] [--
 
 # If not installed:
 npx -y agent-debugger start <script> --break file:line[:condition] [--runtime path] [--args ...]
+agent-debugger attach [host:]port [--break file:line] [--language python]
 agent-debugger eval <expression>        # Run any expression in the current frame
 agent-debugger vars                     # List local variables (prefer eval)
 agent-debugger step [into|out]          # Step over / into function / out of function
-agent-debugger continue                 # Run to next breakpoint or termination
+agent-debugger continue                 # Run to next breakpoint / wait for hit after attach
 agent-debugger stack                    # Show call stack
 agent-debugger break file:line[:cond]   # Add breakpoint mid-session
 agent-debugger source                   # Show source around current line
 agent-debugger status                   # Show session state and location
-agent-debugger close                    # Kill session, clean up
+agent-debugger close                    # Detach / end debug session
 ```
 
 Multiple `--break` flags supported. Conditions are expressions: `--break "app.py:42:len(items) > 10"`.
+
+### Attaching to a Running Server
+
+Use `attach` to debug a server (e.g. uvicorn, Flask, FastAPI) without restarting it.
+
+```bash
+# Terminal 1: Start the server with debugpy listening
+python -m debugpy --listen 5678 --wait-for-client -m uvicorn app:main
+
+# Terminal 2: Attach the debugger and set breakpoints
+agent-debugger attach 5678 --break routes.py:42
+
+# Terminal 3: Trigger the endpoint
+curl localhost:8000/api/endpoint
+
+# Terminal 2: Wait for the breakpoint, then inspect
+agent-debugger continue      # blocks until breakpoint hit
+agent-debugger vars
+agent-debugger eval "request.body"
+agent-debugger close         # detaches without killing the server
+```
+
+You can also add debugpy to your code instead of wrapping the command:
+```python
+import debugpy
+debugpy.listen(5678)
+# debugpy.wait_for_client()  # uncomment to pause until debugger attaches
+```
 
 ## Supported Languages
 

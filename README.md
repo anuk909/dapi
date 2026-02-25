@@ -36,15 +36,16 @@ agent-debugger close
 | Command | Description |
 |---------|-------------|
 | `start <script> [options]` | Start a debug session |
+| `attach [host:]port [options]` | Attach to a running debug server |
 | `vars` | List local variables in the current frame |
 | `eval <expression>` | Evaluate an expression in the current scope |
 | `step [into\|out]` | Step over, into a function, or out of a function |
-| `continue` | Resume execution until the next breakpoint |
+| `continue` | Resume execution / wait for next breakpoint |
 | `stack` | Show the call stack |
 | `break <file:line[:condition]>` | Add a breakpoint mid-session |
 | `source [file] [line]` | Show source code around the current line |
 | `status` | Show session state and current location |
-| `close` | End the debug session and clean up |
+| `close` | Detach or end the debug session |
 
 ### Start Options
 
@@ -56,6 +57,44 @@ Options:
   --runtime <path>                      Path to language runtime (e.g. python, node)
   --stop-on-entry                       Pause on the first line
   --args <...>                          Arguments to pass to the script
+```
+
+### Attach Options
+
+```bash
+agent-debugger attach [host:]port [options]
+
+Options:
+  --break, -b <file:line[:condition]>   Set a breakpoint (repeatable)
+  --language <name>                     Language adapter (default: python)
+```
+
+### Attaching to a Running Server
+
+Debug a server (uvicorn, Flask, FastAPI, etc.) without restarting it:
+
+```bash
+# Terminal 1: Start your server with debugpy listening
+python -m debugpy --listen 5678 --wait-for-client -m uvicorn app:main
+
+# Terminal 2: Attach and set breakpoints
+agent-debugger attach 5678 --break routes.py:42
+
+# Terminal 3: Make a request to trigger the breakpoint
+curl localhost:8000/api/endpoint
+
+# Terminal 2: Wait for the hit, then inspect
+agent-debugger continue
+agent-debugger vars
+agent-debugger eval "request.body"
+agent-debugger close          # detaches without killing the server
+```
+
+You can also embed debugpy in your code:
+```python
+import debugpy
+debugpy.listen(5678)
+# debugpy.wait_for_client()  # uncomment to pause until debugger attaches
 ```
 
 ### Breakpoints
@@ -111,21 +150,20 @@ export CODELLDB_PATH=/path/to/codelldb/adapter/codelldb
 
 ## How It Works
 
+**Launch mode** (`start`) — the daemon spawns the debug adapter:
 ```
 CLI (stateless)  ──unix socket──▶  Daemon (session state)  ──TCP/DAP──▶  Debug Adapter
                                                                           (debugpy, dlv, etc.)
 ```
 
+**Attach mode** (`attach`) — the daemon connects to an existing debug server:
+```
+CLI (stateless)  ──unix socket──▶  Daemon (session state)  ──TCP/DAP──▶  Your Server
+                                                                          (with debugpy listening)
+```
+
 - **CLI** (`agent-debugger`): Stateless client. Parses arguments, sends JSON commands over a Unix socket, prints results.
-- **Daemon**: Background process that manages the debug session. Spawns the debug adapter, connects via DAP, and translates CLI commands into DAP requests.
+- **Daemon**: Background process that manages the debug session. Spawns or connects to a debug adapter via DAP, and translates CLI commands into DAP requests.
 - **Debug Adapter**: Language-specific process (debugpy, Delve, js-debug, CodeLLDB) that implements the Debug Adapter Protocol.
 
 The daemon starts automatically on the first command and shuts down when the session closes. Only one debug session runs at a time.
-
-## Programmatic API
-
-The `Session` class is exported for use as a library:
-
-```js
-import { Session } from "agent-debugger";
-```
