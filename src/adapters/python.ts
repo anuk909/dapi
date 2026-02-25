@@ -32,55 +32,51 @@ export class PythonAdapter implements AdapterConfig {
   }
 
   /**
-   * Inject debugpy into a running Python process by PID using lldb.
+   * Inject debugpy into a running Python process by PID.
    *
-   * Uses Python C API calls (PyGILState_Ensure/PyRun_SimpleString/PyGILState_Release)
-   * via lldb expressions — no architecture-specific dylibs needed.
-   * Works on macOS ARM64 where debugpy's built-in --pid inject fails.
+   * Uses the native debugger (lldb on macOS, gdb on Linux) to call Python C API
+   * functions (PyGILState_Ensure/PyRun_SimpleString/PyGILState_Release) directly.
+   * No architecture-specific dylibs needed — works on macOS ARM64 and Linux.
    *
+   * Auto-detects the target Python runtime and installs debugpy if missing.
    * debugpy.listen() spawns its own adapter subprocess, so the returned port
    * is where the adapter is serving DAP for clients to connect to.
    */
   async inject(pid: number, runtimePath?: string): Promise<InjectResult> {
     const debuggeePort = await getFreePort();
 
-    // Use lldb to inject debugpy.listen() into the running process
-    const code = `import debugpy; debugpy.listen(('127.0.0.1', ${debuggeePort}))`;
-    const lldbProc = cpSpawn("lldb", [
-      "--batch",
-      "-o", `process attach --pid ${pid}`,
-      "-o", `expr (int) PyGILState_Ensure()`,
-      "-o", `expr (int) PyRun_SimpleString("${code}")`,
-      "-o", `expr (void) PyGILState_Release($0)`,
-      "-o", `detach`,
-    ], { stdio: ["pipe", "pipe", "pipe"] });
+    // The injection code auto-installs debugpy if missing using sys.executable,
+    // which is always correct regardless of symlinks or venv resolution.
+    // This avoids macOS issues where `ps` resolves venv symlinks to the real binary.
+    const code = [
+      "import importlib.util, subprocess, sys",
+      "subprocess.call([sys.executable, '-m', 'pip', 'install', '-q', 'debugpy']) if not importlib.util.find_spec('debugpy') else None",
+      "import debugpy",
+      `debugpy.listen(('127.0.0.1', ${debuggeePort}))`,
+    ].join("; ");
 
-    // Wait for lldb to finish
-    const lldbOutput = await new Promise<string>((resolve, reject) => {
-      let stdout = "";
-      let stderr = "";
-      lldbProc.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
-      lldbProc.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
-      lldbProc.on("exit", (exitCode) => {
-        if (exitCode !== 0) reject(new Error(`lldb failed (exit ${exitCode}): ${stderr.trim()}`));
-        else resolve(stdout);
-      });
-      lldbProc.on("error", (err) => reject(new Error(`lldb not found: ${err.message}`)));
-    });
+    const injectorProc = process.platform === "darwin"
+      ? spawnLldbInject(pid, code)
+      : spawnGdbInject(pid, code);
+
+    // Wait for the injector to finish (may take longer if pip install runs)
+    const output = await waitForProcess(injectorProc);
 
     // Verify PyRun_SimpleString returned 0 (success)
-    if (lldbOutput.includes("$1 = -1")) {
-      throw new Error("PyRun_SimpleString failed — debugpy may not be installed in the target process");
+    // In lldb, the PyRun_SimpleString result is $1; in gdb it's $2
+    const failPattern = process.platform === "darwin" ? "$1 = -1" : "$2 = -1";
+    if (output.includes(failPattern)) {
+      const hint = runtimePath || "python3";
+      throw new Error(
+        `Failed to inject debugpy into process. Ensure pip is available: ${hint} -m pip install debugpy`,
+      );
     }
 
-    // Don't poll the port here — debugpy treats a TCP connection as a DAP client,
-    // and our probe would consume the single-client slot. The DAPClient.connect()
-    // has its own retry loop that will wait for the port to be ready.
-
-    // Small delay for debugpy to initialize its server after lldb detaches.
+    // Wait for debugpy to initialize its adapter subprocess.
+    // Don't poll the port — debugpy's single-client DAP slot would be consumed.
     await new Promise(resolve => setTimeout(resolve, 2000));
 
-    return { process: lldbProc, port: debuggeePort };
+    return { process: injectorProc, port: debuggeePort };
   }
 
   initializeArgs(): Record<string, unknown> {
@@ -292,6 +288,56 @@ export class PythonAdapter implements AdapterConfig {
   isInternalVariable(v: Variable): boolean {
     return v.name.startsWith("__") || v.name === "special variables" || v.name === "function variables";
   }
+}
+
+// --- Helper functions ---
+
+/** Spawn lldb to inject Python code into a process (macOS). */
+function spawnLldbInject(pid: number, code: string): ChildProcess {
+  return cpSpawn("lldb", [
+    "--batch",
+    "-o", `process attach --pid ${pid}`,
+    "-o", `expr (int) PyGILState_Ensure()`,
+    "-o", `expr (int) PyRun_SimpleString("${code}")`,
+    // $0 = GIL state from PyGILState_Ensure — must pass it back to properly release
+    "-o", `expr (void) PyGILState_Release($0)`,
+    "-o", `detach`,
+  ], { stdio: ["pipe", "pipe", "pipe"] });
+}
+
+/** Spawn gdb to inject Python code into a process (Linux). */
+function spawnGdbInject(pid: number, code: string): ChildProcess {
+  return cpSpawn("gdb", [
+    "-batch",
+    "-p", String(pid),
+    "-ex", `call (int)PyGILState_Ensure()`,
+    "-ex", `call (int)PyRun_SimpleString("${code}")`,
+    // $1 = GIL state from first call — gdb numbers results starting at $1
+    "-ex", `call (void)PyGILState_Release($1)`,
+    "-ex", `detach`,
+  ], { stdio: ["pipe", "pipe", "pipe"] });
+}
+
+/** Wait for a child process to exit and return its stdout. */
+function waitForProcess(proc: ChildProcess): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let stdout = "";
+    let stderr = "";
+    proc.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+    proc.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString(); });
+    proc.on("exit", (exitCode) => {
+      if (exitCode !== 0) {
+        const tool = process.platform === "darwin" ? "lldb" : "gdb";
+        reject(new Error(`${tool} failed (exit ${exitCode}): ${stderr.trim()}`));
+      } else {
+        resolve(stdout);
+      }
+    });
+    proc.on("error", (err) => {
+      const tool = process.platform === "darwin" ? "lldb" : "gdb";
+      reject(new Error(`${tool} not found: ${err.message}`));
+    });
+  });
 }
 
 function execCheck(cmd: string, args: string[]): Promise<void> {

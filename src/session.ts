@@ -159,29 +159,21 @@ export class Session {
     let host = cmd.host || "127.0.0.1";
     let port = cmd.port;
 
-    // PID mode: inject debugpy into the running process via lldb
+    // PID mode: inject debugpy into the running process (lldb on macOS, gdb on Linux)
     if (cmd.pid) {
       if (!this.adapter.inject) {
         this.state = "idle";
         return { error: `PID injection not supported for ${this.adapter.name}` };
       }
 
-      // Check debugpy is installed
-      const installErr = await this.adapter.checkInstalled(cmd.runtime);
-      if (installErr) {
-        this.state = "idle";
-        return { error: installErr };
-      }
-
       try {
+        // inject() auto-detects the Python runtime and installs debugpy if needed
         const injectResult = await this.adapter.inject(cmd.pid, cmd.runtime);
-        // inject() uses lldb to call debugpy.listen() inside the process.
-        // The debuggeePort is where the DAP server is now running in-process.
         port = injectResult.debuggeePort ?? injectResult.port;
         host = "127.0.0.1";
       } catch (err) {
         this.state = "idle";
-        return { error: `Failed to inject debugpy into PID ${cmd.pid}: ${(err as Error).message}` };
+        return { error: `Failed to inject into PID ${cmd.pid}: ${(err as Error).message}` };
       }
     }
 
