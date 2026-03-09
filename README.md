@@ -1,56 +1,57 @@
-# agent-debugger
+# dapi
 
-CLI debugger for AI agents. Set breakpoints, inspect variables, evaluate expressions, and step through code — in Python, JavaScript, Go, Rust, C, and C++.
+CLI debugger for AI agents. Set breakpoints, inspect variables, evaluate expressions, step through code, and attach to running servers by PID — no restart needed.
 
-Built on the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP), the same protocol that powers VS Code's debugger. One CLI, multiple language backends.
+Built on the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP). Every stop returns **auto-context**: location + source snippet + locals + stack + buffered output in one response.
+
+Supports Python, JavaScript/TypeScript, Go, Rust, C, and C++.
 
 ## Install
 
 ```bash
-npm install -g agent-debugger
+npm install -g dapi
 ```
 
-Requires Node.js >= 18.
+Or zero-install with npx:
+
+```bash
+npx -y dapi start app.py --break app.py:25
+```
+
+Requires Node.js >= 18 (or bun).
 
 ## Quick Start
 
 ### Debug a script
 
 ```bash
-# Start a debug session, paused at line 25
-agent-debugger start app.py --break app.py:25
+dapi start app.py --break app.py:25
 
-# Inspect variables at the breakpoint
-agent-debugger vars
+# Every stop returns auto-context automatically:
+# Stopped at calculate() · app.py:25 [breakpoint]
+#     23 │ def calculate(data):
+#     24 │     total = 0
+# →   25 │     for item in data:
+# Locals:
+#   data = [{'name': 'Alice', 'age': 30}, ...]  (list)
+#   total = 0  (int)
+# Stack:
+#   calculate [app.py:25]  main [app.py:10]
 
-# Evaluate any expression in the current scope
-agent-debugger eval "type(data['age'])"
-
-# Continue to the next breakpoint
-agent-debugger continue
-
-# Done
-agent-debugger close
+dapi eval "type(data[0]['age'])"   # inspect anything
+dapi continue                      # next breakpoint
+dapi close
 ```
 
 ### Debug a running server
 
-Attach to any running Python process by PID — no restart, no code changes:
-
 ```bash
-# Find your server's PID
 ps aux | grep uvicorn
-
-# Attach and set breakpoints (auto-installs debugpy if needed)
-agent-debugger attach --pid 12345 --break routes.py:42
-
-# Trigger a request, then wait for the breakpoint
-agent-debugger continue
-
-# Inspect state
-agent-debugger vars
-agent-debugger eval "request.body"
-agent-debugger close          # detaches without killing the server
+dapi attach --pid 12345 --break routes.py:42
+curl localhost:8000/api/endpoint   # trigger the code path
+dapi continue                      # wait for breakpoint hit
+dapi eval "request.body"
+dapi close                         # detaches without killing the server
 ```
 
 ## Commands
@@ -60,116 +61,101 @@ agent-debugger close          # detaches without killing the server
 | `start <script> [options]` | Start a debug session |
 | `attach --pid <PID> [options]` | Attach to a running process by PID |
 | `attach [host:]port [options]` | Attach to an existing debug server |
-| `vars` | List local variables in the current frame |
-| `eval <expression>` | Evaluate an expression in the current scope |
-| `step [into\|out]` | Step over, into a function, or out of a function |
+| `step [over\|into\|out]` | Step (default: over) |
 | `continue` | Resume execution / wait for next breakpoint |
-| `stack` | Show the call stack |
-| `break <file:line[:condition]>` | Add a breakpoint mid-session |
-| `source [file] [line]` | Show source code around the current line |
-| `status` | Show session state and current location |
-| `close` | Detach or end the debug session |
+| `context` | Re-fetch auto-context without stepping |
+| `eval <expression>` | Evaluate in current frame |
+| `vars` | List local variables |
+| `stack` | Show call stack |
+| `output` | Drain buffered stdout/stderr since last stop |
+| `break <file:line[:cond]>` | Add breakpoint mid-session |
+| `source [file] [line]` | Show source around current line |
+| `status` | Show session state |
+| `close` | End the debug session |
 
-### Start Options
+### start options
+
+```
+--break, -b <file:line[:condition]>    Set a breakpoint (repeatable)
+--runtime <path>                       Path to language runtime (e.g. /path/to/venv/python)
+--break-on-exception <filter>          Stop on exceptions (repeatable)
+--stop-on-entry                        Pause on the first line
+--args <...>                           Arguments for the debugged script
+--session <name>                       Session name (default: "default")
+```
+
+### attach options
+
+```
+--pid <PID>                            Attach by PID (injects debugpy via lldb/gdb)
+--break, -b <file:line[:condition]>    Set a breakpoint (repeatable)
+--break-on-exception <filter>          Stop on exceptions (repeatable)
+--runtime <path>                       Language runtime path (optional)
+--language <name>                      Adapter: python, node, go, rust (default: python)
+--session <name>                       Session name
+```
+
+## Auto-Context
+
+Every execution command (`start`, `step`, `continue`, `context`) returns full context in one response:
+
+```
+Stopped at compute() · app.py:41 [breakpoint]
+
+    37 │ def compute(items):
+    38 │     result = None
+    39 │     for item in items:
+    40 │         result += item
+→   41 │     return result
+
+Locals:
+  items = [1, 2, 3]  (list)
+  result = None  (NoneType)
+
+Stack:
+  compute [app.py:41]
+  main [app.py:10]
+
+Output:
+  Processing batch...
+```
+
+No follow-up `vars`, `stack`, or `source` calls needed.
+
+## Multi-Session
+
+Run independent debug sessions in parallel using `--session <name>`:
 
 ```bash
-agent-debugger start <script> [options]
+dapi --session api    start api.py    --break routes.py:42
+dapi --session worker start worker.py --break tasks.py:88
 
-Options:
-  --break, -b <file:line[:condition]>   Set a breakpoint (repeatable)
-  --runtime <path>                      Path to language runtime (e.g. python, node)
-  --stop-on-entry                       Pause on the first line
-  --args <...>                          Arguments to pass to the script
+dapi --session api    eval "request.user"
+dapi --session worker eval "queue.size()"
+
+dapi --session api    close
+dapi --session worker close
 ```
 
-### Attach Options
-
-```bash
-agent-debugger attach --pid <PID> [options]
-agent-debugger attach [host:]port [options]
-
-Options:
-  --pid <PID>                           Attach to a running process by PID
-  --break, -b <file:line[:condition]>   Set a breakpoint (repeatable)
-  --runtime <path>                      Path to language runtime (optional, auto-detected)
-  --language <name>                     Language adapter (default: python)
-```
-
-### Attaching to a Running Server
-
-#### By PID (recommended — zero setup)
-
-Debug any running Python process without restarting it or changing any code:
-
-```bash
-# Attach to a running uvicorn/flask/django/etc.
-agent-debugger attach --pid $(pgrep -f uvicorn) --break routes.py:42
-
-# Trigger a request, wait for the breakpoint hit
-agent-debugger continue
-agent-debugger vars
-agent-debugger eval "request.body"
-agent-debugger close
-```
-
-Under the hood, this uses lldb (macOS) or gdb (Linux) to inject debugpy directly into the running process. If debugpy isn't installed in the target environment, it auto-installs via pip.
-
-#### By port (manual setup)
-
-If you prefer to start your server with debugpy explicitly:
-
-```bash
-# Start server with debugpy listening
-python -m debugpy --listen 5678 -m uvicorn app:main
-
-# Attach
-agent-debugger attach 5678 --break routes.py:42
-agent-debugger continue
-```
-
-Or embed debugpy in your code:
-```python
-import debugpy
-debugpy.listen(5678)
-```
-
-### Breakpoints
-
-Multiple breakpoints and conditional breakpoints are supported:
-
-```bash
-# Multiple breakpoints
-agent-debugger start app.py --break app.py:25 --break app.py:40
-
-# Conditional breakpoint — only pause when the condition is true
-agent-debugger start app.py --break "app.py:30:i == 50"
-
-# Add a breakpoint to a running session
-agent-debugger break app.py:60
-```
+Each session has its own daemon at `~/.dapi/<name>.sock`.
 
 ## Supported Languages
 
-| Language | Extensions | Debug Adapter | Setup |
-|----------|------------|---------------|-------|
-| Python | `.py` | [debugpy](https://github.com/microsoft/debugpy) | `pip install debugpy` |
-| JavaScript | `.js`, `.mjs`, `.cjs` | @vscode/js-debug | VS Code installed, or `JS_DEBUG_PATH` env var |
-| TypeScript | `.ts`, `.mts`, `.tsx` | @vscode/js-debug | Same as JavaScript |
+| Language | Extension | Adapter | Setup |
+|----------|-----------|---------|-------|
+| Python | `.py` | debugpy | `pip install debugpy` (auto-installed on `attach --pid`) |
+| JavaScript/TypeScript | `.js` `.ts` | @vscode/js-debug | VS Code installed, or `JS_DEBUG_PATH` env var |
 | Go | `.go` | Delve | `go install github.com/go-delve/delve/cmd/dlv@latest` |
-| Rust | `.rs` | CodeLLDB | `CODELLDB_PATH` env var |
-| C/C++ | `.c`, `.cpp`, `.cc` | CodeLLDB | Same as Rust |
+| Rust/C/C++ | `.rs` `.c` `.cpp` | CodeLLDB | `CODELLDB_PATH` env var |
 
-### Language-specific setup
+### Language-specific notes
 
-**Python** — install debugpy in the environment you want to debug:
+**Python** — use `--runtime` to target a specific venv:
 ```bash
-pip install debugpy
-
-# Use a specific Python interpreter
-agent-debugger start app.py --break app.py:10 --runtime /path/to/venv/bin/python
+dapi start app.py --break app.py:10 --runtime /path/to/venv/bin/python
 ```
 
-**JavaScript/TypeScript** — requires VS Code's js-debug extension, which ships with any VS Code install. The adapter auto-detects it from `~/.vscode/extensions/`. To use a custom location:
+**JavaScript/TypeScript** — js-debug auto-detected from `~/.vscode/extensions/`. Override:
 ```bash
 export JS_DEBUG_PATH=/path/to/ms-vscode.js-debug-x.x.x
 ```
@@ -179,36 +165,35 @@ export JS_DEBUG_PATH=/path/to/ms-vscode.js-debug-x.x.x
 go install github.com/go-delve/delve/cmd/dlv@latest
 ```
 
-**Rust/C/C++** — set the path to the CodeLLDB adapter binary:
+**Rust/C/C++** — set CodeLLDB path:
 ```bash
 export CODELLDB_PATH=/path/to/codelldb/adapter/codelldb
 ```
 
 ## How It Works
 
-**Launch mode** (`start`) — the daemon spawns the debug adapter:
 ```
-CLI (stateless)  ──unix socket──▶  Daemon (session state)  ──TCP/DAP──▶  Debug Adapter
-                                                                          (debugpy, dlv, etc.)
-```
-
-**Attach by PID** (`attach --pid`) — injects debugpy into a running process:
-```
-CLI  ──unix socket──▶  Daemon  ──lldb/gdb──▶  Target Process
-                                               (injects debugpy.listen())
-                         │
-                         └──────────TCP/DAP──▶  debugpy adapter
-                                                (spawned by debugpy.listen)
+CLI (stateless)  ──unix socket──▶  Daemon  ──TCP/DAP──▶  Debug Adapter
+                                   ~/.dapi/<session>.sock   (debugpy, dlv, etc.)
 ```
 
-**Attach by port** (`attach port`) — connects to an existing debug server:
+**Attach by PID:**
 ```
-CLI  ──unix socket──▶  Daemon  ──TCP/DAP──▶  Your Server
-                                              (with debugpy listening)
+CLI  ──▶  Daemon  ──lldb/gdb──▶  Target Process (injects debugpy.listen())
+                  ──TCP/DAP──▶   debugpy adapter (spawned by debugpy.listen)
 ```
 
-- **CLI** (`agent-debugger`): Stateless client. Parses arguments, sends JSON commands over a Unix socket, prints results.
-- **Daemon**: Background process that manages the debug session. Spawns, injects, or connects to a debug adapter via DAP, and translates CLI commands into DAP requests.
-- **Debug Adapter**: Language-specific process (debugpy, Delve, js-debug, CodeLLDB) that implements the Debug Adapter Protocol.
+- **CLI** (`dapi`): Stateless. Sends JSON commands over a Unix socket, prints results.
+- **Daemon**: Background process per session. Manages DAP session, buffers output.
+- **Debug Adapter**: Language-specific process (debugpy, dlv, js-debug, CodeLLDB).
 
-The daemon starts automatically on the first command and shuts down when the session closes. Only one debug session runs at a time.
+The daemon starts automatically on the first command and exits when the session closes.
+
+## Development
+
+```bash
+git clone https://github.com/anuk909/dapi
+cd dapi
+bun install
+bun test
+```
