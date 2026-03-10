@@ -15,23 +15,17 @@ Supports Python, Go, JavaScript/TypeScript, Rust, C, and C++.
 
 ## Install the Skill
 
-### Claude Code (and compatible agents)
+### Claude Code
 
-```bash
-mkdir -p ~/.claude/skills/dapi
-curl -fsSL https://raw.githubusercontent.com/anuk909/dapi/main/skills/dapi/SKILL.md \
-  -o ~/.claude/skills/dapi/SKILL.md
 ```
-
-Or if you have the repo cloned, symlink it so updates are instant:
-
-```bash
-ln -s /path/to/dapi/skills/dapi ~/.claude/skills/dapi
+/claude install anuk909/dapi
 ```
 
 ### Other agents
 
-Copy [`skills/dapi/SKILL.md`](skills/dapi/SKILL.md) into your agent's skill/context directory.
+```bash
+npx skills install anuk909/dapi
+```
 
 ---
 
