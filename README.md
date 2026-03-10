@@ -1,24 +1,53 @@
 # dapi
 
-**Claude Code skill + CLI debugger for AI agents.**
+**Let your AI agent debug like a human developer.**
 
-Gives Claude (and other AI agents) the ability to pause execution at any line, inspect real runtime state, and fix bugs with confidence — across Python, Go, JavaScript/TypeScript, Rust, C, and C++. No IDE, no GUI, no restart needed.
+`dapi` ships two things:
 
-Built on the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP). Every stop returns **auto-context**: location + source snippet + locals + stack + buffered output in one shot — no follow-up calls needed.
+- **A Claude Code skill** — teaches Claude *when* to reach for the debugger, how to form a hypothesis, and how to confirm it with a single `eval`. Install once, works on every project.
+- **The `dapi` CLI** — a stateless CLI wrapper around the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP). Set breakpoints, inspect runtime state, attach to running servers by PID — no IDE, no restart, no guesswork.
 
-## Install
+Every stop returns **auto-context**: location + source snippet + locals + stack + output in one shot. No follow-up calls needed.
+
+Supports Python, Go, JavaScript/TypeScript, Rust, C, and C++.
+
+---
+
+## Install the Skill
+
+### Claude Code
+
+```bash
+mkdir -p ~/.claude/skills/dapi
+curl -fsSL https://raw.githubusercontent.com/anuk909/dapi/main/skills/dapi/SKILL.md \
+  -o ~/.claude/skills/dapi/SKILL.md
+```
+
+Or if you have the repo cloned, symlink it so updates are instant:
+
+```bash
+ln -s /path/to/dapi/skills/dapi ~/.claude/skills/dapi
+```
+
+### Other agents
+
+Copy [`skills/dapi/SKILL.md`](skills/dapi/SKILL.md) into your agent's skill/context directory.
+
+---
+
+## Install the CLI
 
 ```bash
 npm install -g dapi-cli
 ```
 
-Or zero-install with npx:
+Or zero-install — no setup needed:
 
 ```bash
 npx -y dapi-cli start app.py --break app.py:25
 ```
 
-Requires Node.js >= 18 (or bun).
+Requires Node.js >= 18.
 
 ## Quick Start
 
