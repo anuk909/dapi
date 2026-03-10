@@ -1,10 +1,10 @@
 # dapi
 
-CLI debugger for AI agents. Set breakpoints, inspect variables, evaluate expressions, step through code, and attach to running servers by PID — no restart needed.
+**Claude Code skill + CLI debugger for AI agents.**
 
-Built on the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP). Every stop returns **auto-context**: location + source snippet + locals + stack + buffered output in one response.
+Gives Claude (and other AI agents) the ability to pause execution at any line, inspect real runtime state, and fix bugs with confidence — across Python, Go, JavaScript/TypeScript, Rust, C, and C++. No IDE, no GUI, no restart needed.
 
-Supports Python, JavaScript/TypeScript, Go, Rust, C, and C++.
+Built on the [Debug Adapter Protocol](https://microsoft.github.io/debug-adapter-protocol/) (DAP). Every stop returns **auto-context**: location + source snippet + locals + stack + buffered output in one shot — no follow-up calls needed.
 
 ## Install
 
