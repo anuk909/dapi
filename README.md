@@ -15,16 +15,6 @@ Supports Python, Go, JavaScript/TypeScript, Rust, C, and C++.
 
 ## Install the Skill
 
-### Claude Code
-
-```bash
-mkdir -p ~/.claude/skills/dapi && \
-  curl -fsSL https://raw.githubusercontent.com/anuk909/dapi/main/skills/dapi/SKILL.md \
-  -o ~/.claude/skills/dapi/SKILL.md
-```
-
-### Other agents
-
 ```bash
 npx skills install anuk909/dapi
 ```
