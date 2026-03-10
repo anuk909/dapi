@@ -1,7 +1,6 @@
 ---
 name: dapi
 description: Use when a program crashes, a test fails, or code produces wrong results and reading the source isn't enough to see why. Pauses execution at any line and inspects actual runtime state — variables, types, call stack, live output — to find exactly what went wrong. Can attach to running servers by PID with no restart or code changes needed. Every stop returns full context automatically.
-allowed-tools: Bash(npx -y dapi:*), Bash(dapi:*)
 ---
 
 # dapi — CLI Debugger for AI Agents
@@ -40,10 +39,10 @@ The debugger is a scalpel, not a flashlight. You don't turn it on to look around
 
 ```bash
 # Zero-install (recommended):
-npx -y dapi start app.py --break app.py:42
+npx -y dapi-cli start app.py --break app.py:42
 
 # Or install globally:
-npm install -g dapi
+npm install -g dapi-cli
 dapi start app.py --break app.py:42
 ```
 

@@ -78,7 +78,7 @@ function formatAutoContext(result: CommandResult): string {
   const loc = result.location!;
   const reason = result.reason ? ` [${result.reason}]` : "";
   const lines: string[] = [
-    `Stopped at ${loc.function}() · ${loc.file}:${loc.line}${reason}`,
+    `paused at ${loc.function}() · ${loc.file}:${loc.line}${reason}`,
   ];
 
   if (result.source_snippet) {

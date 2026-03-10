@@ -1,15 +1,32 @@
 {
-  "name": "dapi",
-  "version": "0.1.0",
+  "name": "dapi-cli",
+  "version": "1.1.0",
   "description": "CLI debugger for AI agents — attach by PID, auto-context on every stop, multi-session",
-  "keywords": ["debugger", "dap", "cli", "ai-agent", "breakpoint", "python", "go", "javascript", "typescript", "rust"],
+  "keywords": [
+    "debugger",
+    "dap",
+    "cli",
+    "ai-agent",
+    "breakpoint",
+    "python",
+    "go",
+    "javascript",
+    "typescript",
+    "rust"
+  ],
   "type": "module",
   "bin": {
-    "dapi": "./bin/dapi"
+    "dapi": "./bin/dapi.js"
   },
-  "files": ["bin/", "src/", "skills/"],
+  "files": [
+    "bin/",
+    "dist/",
+    "skills/"
+  ],
   "sideEffects": false,
   "scripts": {
+    "build": "bun build src/cli.ts src/daemon.ts --outdir dist/src --target node && chmod +x bin/dapi.js",
+    "prepublishOnly": "bun run build",
     "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
@@ -21,11 +38,11 @@
     "typescript": "^5.8.2"
   },
   "engines": {
-    "bun": ">=1.0.0"
+    "node": ">=18.0.0"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/anuk909/dapi"
+    "url": "git+https://github.com/anuk909/dapi.git"
   },
   "license": "MIT"
 }

@@ -31,8 +31,13 @@ function isDaemonRunning(session: string): boolean {
 function ensureDaemon(session: string): Promise<void> {
   if (isDaemonRunning(session)) return Promise.resolve();
 
-  const daemonScript = pathResolve(__dirname, "daemon.ts");
-  const child = spawn("bun", ["run", daemonScript, session], { stdio: "ignore", detached: true });
+  const isCompiled = import.meta.url.endsWith(".js");
+  const daemonScript = isCompiled
+    ? pathResolve(__dirname, "daemon.js")
+    : pathResolve(__dirname, "daemon.ts");
+  const child = isCompiled
+    ? spawn("node", [daemonScript, session], { stdio: "ignore", detached: true })
+    : spawn("bun", ["run", daemonScript, session], { stdio: "ignore", detached: true });
   child.unref();
 
   return new Promise((resolve, reject) => {
@@ -151,7 +156,7 @@ async function main(): Promise<void> {
         breakpoints,
         stop_on_entry: stopOnEntry,
       };
-      if (runtimePath) cmd.runtime = pathResolve(runtimePath);
+      if (runtimePath) cmd.runtime = runtimePath.includes("/") ? pathResolve(runtimePath) : runtimePath;
       if (scriptArgs) cmd.args = scriptArgs;
       if (exceptionFilters.length) cmd.exceptionFilters = exceptionFilters;
       result = await sendCommand(cmd, session);
@@ -177,7 +182,8 @@ async function main(): Promise<void> {
         } else if (flag === "--language" && ai + 1 < argv.length) {
           language = argv[ai + 1]!; ai += 2;
         } else if ((flag === "--runtime" || flag === "--python") && ai + 1 < argv.length) {
-          runtime = argv[ai + 1]!; ai += 2;
+          const rt = argv[ai + 1]!;
+          runtime = rt.includes("/") ? pathResolve(rt) : rt; ai += 2;
         } else if (flag === "--break-on-exception" && ai + 1 < argv.length) {
           exceptionFilters.push(argv[ai + 1]!); ai += 2;
         } else if (!port && !flag.startsWith("-")) {

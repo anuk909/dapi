@@ -12,13 +12,12 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
-          cache: npm
+          node-version: 20
           registry-url: https://registry.npmjs.org
-      - run: npm ci
-      - run: npm run build
+      - run: bun install
 
       - name: Verify tag matches package.json version
         run: |

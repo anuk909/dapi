@@ -9,13 +9,13 @@ Supports Python, JavaScript/TypeScript, Go, Rust, C, and C++.
 ## Install
 
 ```bash
-npm install -g dapi
+npm install -g dapi-cli
 ```
 
 Or zero-install with npx:
 
 ```bash
-npx -y dapi start app.py --break app.py:25
+npx -y dapi-cli start app.py --break app.py:25
 ```
 
 Requires Node.js >= 18 (or bun).
@@ -197,3 +197,7 @@ cd dapi
 bun install
 bun test
 ```
+
+## Credits
+
+dapi is based on [JoaquinCampo/agent-debugger](https://github.com/JoaquinCampo/agent-debugger) (multi-language DAP support, attach by PID) and incorporates design ideas from [AlmogBaku/debug-skill](https://github.com/AlmogBaku/debug-skill) (auto-context, output buffering, multi-session).
